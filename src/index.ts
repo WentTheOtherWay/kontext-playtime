@@ -164,4 +164,37 @@ app.post('/enhance-image', async (c) => {
 	});
 });
 
+app.post('/generate-video', async (c) => {
+	const authHeader = c.req.header('Authorization');
+	if (!authHeader || !authHeader.startsWith('Bearer ')) {
+		return c.json({ error: 'Missing Replicate API token in Authorization header' }, 401);
+	}
+	const replicateToken = authHeader.replace('Bearer ', '').trim();
+	const replicate = new Replicate({ auth: replicateToken });
+	const model = 'google/veo-3';
+	const { prompt, enhance_prompt = true, negative_prompt, seed } = await c.req.json();
+
+	if (!prompt) {
+		return c.json({ error: 'prompt is required' }, 400);
+	}
+
+	const input = {
+		prompt,
+		enhance_prompt,
+		...(negative_prompt && { negative_prompt }),
+		...(seed && { seed })
+	};
+
+	const output = (await replicate.run(model, { input })) as unknown;
+
+	// Some models return an array of output files, others just a single file.
+	const outputVideoUrl = Array.isArray(output) ? output[0] : output
+
+	return c.body(outputVideoUrl, {
+		headers: {
+			'Content-Type': 'video/mp4',
+		},
+	});
+});
+
 export default app;

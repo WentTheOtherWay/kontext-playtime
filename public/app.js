@@ -5,9 +5,13 @@ const OPENAI_API_KEY = 'openai_api_key';
 const App = () => {
 	const visualizerRef = React.useRef(null);
 	const [images, setImages] = React.useState([]);
+	const [videos, setVideos] = React.useState([]);
 	const [lastImageUrl, setLastImageUrl] = React.useState(null);
+	const [lastVideoUrl, setLastVideoUrl] = React.useState(null);
 	const lastImageUrlRef = React.useRef();
+	const lastVideoUrlRef = React.useRef();
 	lastImageUrlRef.current = lastImageUrl;
+	lastVideoUrlRef.current = lastVideoUrl;
 	const [audios, setAudios] = React.useState([]);
 	const [isGenerating, setIsGenerating] = React.useState(false);
 	const [isWebcamOpen, setIsWebcamOpen] = React.useState(false);
@@ -177,6 +181,38 @@ const App = () => {
 				}
 			},
 		},
+		createVideo: {
+			description: 'Generate a video using Google Veo 3 and display it on the page',
+			examplePrompt: 'Create a video of a cat playing in a garden',
+			parameters: {
+				type: 'object',
+				properties: {
+					prompt: { type: 'string', description: 'Text description of the video to generate' }
+				}
+			},
+			fn: async ({ prompt }) => {
+				console.log('createVideo', prompt);
+				setIsGenerating(true);
+				try {
+					const videoUrl = await fetchWithReplicateToken('/generate-video', {
+						method: 'POST',
+						headers: {
+							'Content-Type': 'application/json',
+						},
+						body: JSON.stringify({ prompt }),
+					}).then((r) => r.text());
+
+					console.log('videoUrl', videoUrl);
+					
+					setLastVideoUrl(videoUrl);
+					setVideos(prevVideos => [videoUrl, ...prevVideos]);
+
+					return { success: true, videoUrl };
+				} finally {
+					setIsGenerating(false);
+				}
+			}
+		},
 		changeBackgroundColor: {
 			description: 'Changes the background color of the page',
 			examplePrompt: 'Change the background to the color of the sky',
@@ -208,23 +244,32 @@ const App = () => {
 			}
 		},
 		undo: {
-			description: 'Removes the last image from the page',
-			examplePrompt: 'Undo the last image so you can try again',
+			description: 'Removes the last image or video from the page',
+			examplePrompt: 'Undo the last image or video so you can try again',
 			parameters: {
 				type: 'object',
 				properties: {}
 			},
 			fn: () => {
-				setImages(prevImages => {
-					const newImages = prevImages.slice(1);
-					setLastImageUrl(newImages[0] || null);
-					return newImages;
-				});
+				// Remove from images first, then videos
+				if (images.length > 0) {
+					setImages(prevImages => {
+						const newImages = prevImages.slice(1);
+						setLastImageUrl(newImages[0] || null);
+						return newImages;
+					});
+				} else if (videos.length > 0) {
+					setVideos(prevVideos => {
+						const newVideos = prevVideos.slice(1);
+						setLastVideoUrl(newVideos[0] || null);
+						return newVideos;
+					});
+				}
 				return { success: true };
 			}
 		},
 		startOver: {
-			description: 'Removes all images from the page',
+			description: 'Removes all images and videos from the page',
 			examplePrompt: 'Start over',
 			parameters: {
 				type: 'object',
@@ -232,7 +277,9 @@ const App = () => {
 			},
 			fn: () => {
 				setImages([]);
+				setVideos([]);
 				setLastImageUrl(null);
+				setLastVideoUrl(null);
 				return { success: true };
 			}
 		},
@@ -249,7 +296,7 @@ const App = () => {
 				return { success: true };
 			},
 		},
-	}), [lastImageUrlRef]);
+	}), [lastImageUrlRef, lastVideoUrlRef, images, videos]);
 
 	const tools = React.useMemo(() => Object.entries(fns).map(([name, { fn, examplePrompt, hideFromCommands, ...tool }]) => ({
 		type: 'function',
@@ -510,7 +557,7 @@ const App = () => {
 						<footer className="py-8 opacity-70 mt-12">
 							<p>
 								This is a realtime demo of voice-powered function calling
-								using <a href="https://developers.cloudflare.com" className="underline">Cloudflare Workers</a>, <a href="https://replicate.com?utm_campaign=kontext-realtime&utm_source=project" className="underline">Replicate</a>, and the <a href="https://platform.openai.com/docs/api-reference/realtime" className="underline">OpenAI Realtime API</a>. It generates images using <a href="https://replicate.com/black-forest-labs/flux-schnell?utm_campaign=kontext-realtime&utm_source=project" className="underline">Flux Schnell</a> and edits them using <a href="https://replicate.com/black-forest-labs/flux-kontext-pro?utm_campaign=kontext-realtime&utm_source=project" className="underline">Flux Kontext Pro</a>.
+								using <a href="https://developers.cloudflare.com" className="underline">Cloudflare Workers</a>, <a href="https://replicate.com?utm_campaign=kontext-realtime&utm_source=project" className="underline">Replicate</a>, and the <a href="https://platform.openai.com/docs/api-reference/realtime" className="underline">OpenAI Realtime API</a>. It generates images using <a href="https://replicate.com/black-forest-labs/flux-schnell?utm_campaign=kontext-realtime&utm_source=project" className="underline">Flux Schnell</a>, edits them using <a href="https://replicate.com/black-forest-labs/flux-kontext-pro?utm_campaign=kontext-realtime&utm_source=project" className="underline">Flux Kontext Pro</a>, and creates videos using <a href="https://replicate.com/google/veo-3" className="underline">Google Veo 3</a>.
 							</p>
 							<p className="mt-4">
 								Check out the <a href="https://github.com/zeke/kontext-realtime/" className="underline">code</a>.
@@ -523,7 +570,16 @@ const App = () => {
 							{isGenerating && <Spinner />}
 							{isWebcamOpen && <WebcamCapture onCapture={handleNewImage} onClose={() => setIsWebcamOpen(false)} />}
 							{images.map((imageUrl, index) => (
-								<img key={index} src={imageUrl} style={{ maxWidth: '100%' }} />
+								<img key={`img-${index}`} src={imageUrl} style={{ maxWidth: '100%' }} />
+							))}
+							{videos.map((videoUrl, index) => (
+								<video 
+									key={`vid-${index}`} 
+									src={videoUrl} 
+									controls 
+									style={{ maxWidth: '100%' }}
+									className="rounded-lg shadow-lg"
+								/>
 							))}
 						</div>
 					</div>
